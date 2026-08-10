@@ -15,3 +15,8 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+### Testing
+- Create a task for each ui test
+- Confirm the test with web, ios, and android for all features.
+
