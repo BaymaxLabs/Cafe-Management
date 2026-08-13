@@ -3,6 +3,7 @@ import '../router/app_routes.dart';
 import '../../features/auth/screens/landing_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
+import '../../features/auth/screens/coming_soon_screen.dart';
 
 class AppRouter {
   AppRouter._();
@@ -15,6 +16,8 @@ class AppRouter {
         return _fade(const LoginScreen());
       case AppRoutes.register:
         return _fade(const RegisterScreen());
+      case AppRoutes.comingSoon:
+        return _fade(const ComingSoonScreen());
       default:
         return _fade(const LandingScreen());
     }
@@ -22,8 +25,8 @@ class AppRouter {
 
   static PageRouteBuilder<T> _fade<T>(Widget page) {
     return PageRouteBuilder<T>(
-      pageBuilder: (_, __, ___) => page,
-      transitionsBuilder: (_, animation, __, child) {
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
         return FadeTransition(opacity: animation, child: child);
       },
       transitionDuration: const Duration(milliseconds: 250),

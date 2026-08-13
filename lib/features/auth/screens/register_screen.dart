@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../widgets/brew_logo.dart';
 import '../widgets/primary_button.dart';
@@ -38,7 +39,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _onVerify() {
-    // TODO: verify OTP and complete registration
+    Navigator.pushNamed(context, AppRoutes.comingSoon);
   }
 
   void _onBack(BuildContext context) {
@@ -110,8 +111,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.chevron_left_rounded,
-                          color: AppColors.textMuted, size: 20),
+                      Icon(
+                        Icons.chevron_left_rounded,
+                        color: AppColors.textMuted,
+                        size: 20,
+                      ),
                       SizedBox(width: 2),
                       Text(
                         'Back',
@@ -158,12 +162,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: IconButton(
               onPressed: () => _onBack(context),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.white, size: 18),
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.white,
+                size: 18,
+              ),
               style: IconButton.styleFrom(
                 backgroundColor: const Color(0xFF2A2A2A),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 padding: const EdgeInsets.all(10),
               ),
             ),
@@ -216,10 +224,10 @@ class _RegisterForm extends StatelessWidget {
         Text(
           'Create account.',
           style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                color: AppColors.white,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
+            color: AppColors.white,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
@@ -262,9 +270,7 @@ class _StepIndicator extends StatelessWidget {
           child: Container(
             height: 1,
             margin: const EdgeInsets.symmetric(horizontal: 8),
-            color: currentStep >= 2
-                ? AppColors.white
-                : const Color(0xFF3A3A3A),
+            color: currentStep >= 2 ? AppColors.white : const Color(0xFF3A3A3A),
           ),
         ),
         _StepDot(number: 2, label: 'Verify', isActive: currentStep >= 2),
@@ -274,8 +280,11 @@ class _StepIndicator extends StatelessWidget {
 }
 
 class _StepDot extends StatelessWidget {
-  const _StepDot(
-      {required this.number, required this.label, required this.isActive});
+  const _StepDot({
+    required this.number,
+    required this.label,
+    required this.isActive,
+  });
   final int number;
   final String label;
   final bool isActive;
@@ -358,9 +367,13 @@ class _VerifyStep extends StatelessWidget {
           keyboardType: TextInputType.number,
           maxLength: 6,
           style: const TextStyle(
-              color: AppColors.white, fontSize: 15, letterSpacing: 4),
-          decoration: _inputDecoration(hint: '_ _ _ _ _ _')
-              .copyWith(counterText: ''),
+            color: AppColors.white,
+            fontSize: 15,
+            letterSpacing: 4,
+          ),
+          decoration: _inputDecoration(
+            hint: '_ _ _ _ _ _',
+          ).copyWith(counterText: ''),
         ),
         const SizedBox(height: 12),
         const Text(
@@ -441,8 +454,7 @@ class _PhoneField extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Container(
-                    width: 1, height: 20, color: const Color(0xFF3A3A3A)),
+                Container(width: 1, height: 20, color: const Color(0xFF3A3A3A)),
               ],
             ),
           ),
@@ -458,8 +470,10 @@ class _PhoneField extends StatelessWidget {
                 hintStyle: TextStyle(color: Color(0xFF555555), fontSize: 15),
                 border: InputBorder.none,
                 counterText: '',
-                contentPadding:
-                    EdgeInsets.symmetric(vertical: 16, horizontal: 0),
+                contentPadding: EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 0,
+                ),
               ),
             ),
           ),
