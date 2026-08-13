@@ -1,10 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../widgets/brew_logo.dart';
 import '../widgets/primary_button.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -16,6 +17,9 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   int _step = 1; // 1 = Phone, 2 = Verify
   int _phoneDigits = 0;
+  bool _isLoading = false;
+  String? _verificationId;
+  ConfirmationResult? _webConfirmationResult;
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
 
@@ -34,18 +38,109 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _onSendOtp() {
-    // TODO: send OTP to _phoneController.text
-    setState(() => _step = 2);
+  String get _phoneNumber => '+91${_phoneController.text.trim()}';
+
+  Future<void> _onSendOtp() async {
+    if (_phoneDigits != 10 || _isLoading) return;
+
+    setState(() => _isLoading = true);
+    try {
+      if (kIsWeb) {
+        // Firebase displays and verifies the web reCAPTCHA before sending SMS.
+        _webConfirmationResult = await FirebaseAuth.instance
+            .signInWithPhoneNumber(_phoneNumber);
+        if (mounted) setState(() => _step = 2);
+      } else {
+        await FirebaseAuth.instance.verifyPhoneNumber(
+          phoneNumber: _phoneNumber,
+          verificationCompleted: _finishNativeVerification,
+          verificationFailed: (error) => _showError(_messageFor(error)),
+          codeSent: (verificationId, _) {
+            if (mounted) {
+              setState(() {
+                _verificationId = verificationId;
+                _step = 2;
+              });
+            }
+          },
+          codeAutoRetrievalTimeout: (verificationId) {
+            _verificationId = verificationId;
+          },
+        );
+      }
+    } on FirebaseAuthException catch (error) {
+      _showError(_messageFor(error));
+    } catch (_) {
+      _showError('Unable to send an OTP. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  void _onVerify() {
-    Navigator.pushNamed(context, AppRoutes.comingSoon);
+  Future<void> _onVerify() async {
+    final code = _otpController.text.trim();
+    if (code.length != 6 || _isLoading) {
+      _showError('Enter the 6-digit code sent to your phone.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      if (kIsWeb) {
+        final result = _webConfirmationResult;
+        if (result == null) throw StateError('Please request a new OTP.');
+        await result.confirm(code);
+      } else {
+        final verificationId = _verificationId;
+        if (verificationId == null) {
+          throw StateError('Please request a new OTP.');
+        }
+        final credential = PhoneAuthProvider.credential(
+          verificationId: verificationId,
+          smsCode: code,
+        );
+        await FirebaseAuth.instance.signInWithCredential(credential);
+      }
+      if (mounted) Navigator.pushNamed(context, AppRoutes.comingSoon);
+    } on FirebaseAuthException catch (error) {
+      _showError(_messageFor(error));
+    } on StateError catch (error) {
+      _showError(error.message.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _finishNativeVerification(PhoneAuthCredential credential) async {
+    try {
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      if (mounted) Navigator.pushNamed(context, AppRoutes.comingSoon);
+    } on FirebaseAuthException catch (error) {
+      _showError(_messageFor(error));
+    }
+  }
+
+  String _messageFor(FirebaseAuthException error) => switch (error.code) {
+    'invalid-phone-number' => 'Enter a valid phone number.',
+    'invalid-verification-code' => 'That code is incorrect. Try again.',
+    'session-expired' => 'This OTP has expired. Request a new one.',
+    'too-many-requests' => 'Too many attempts. Please wait and try again.',
+    _ => error.message ?? 'Something went wrong. Please try again.',
+  };
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _onBack(BuildContext context) {
     if (_step == 2) {
-      setState(() => _step = 1);
+      setState(() {
+        _step = 1;
+        _otpController.clear();
+      });
     } else {
       Navigator.pop(context);
     }
@@ -137,9 +232,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 32),
                 PrimaryButton(
-                  label: _step == 1 ? 'Send OTP' : 'Verify',
+                  label: _isLoading
+                      ? (_step == 1 ? 'Sending OTP...' : 'Verifying...')
+                      : (_step == 1 ? 'Send OTP' : 'Verify'),
                   isLight: false,
-                  enabled: _step == 1 ? _phoneDigits == 10 : true,
+                  enabled:
+                      !_isLoading && (_step == 1 ? _phoneDigits == 10 : true),
                   onTap: _step == 1 ? _onSendOtp : _onVerify,
                 ),
                 const Spacer(),
@@ -192,8 +290,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
             child: PrimaryButton(
-              label: _step == 1 ? 'Send OTP' : 'Verify',
+              label: _isLoading
+                  ? (_step == 1 ? 'Sending OTP...' : 'Verifying...')
+                  : (_step == 1 ? 'Send OTP' : 'Verify'),
               isLight: false,
+              enabled: !_isLoading && (_step == 1 ? _phoneDigits == 10 : true),
               onTap: _step == 1 ? _onSendOtp : _onVerify,
             ),
           ),

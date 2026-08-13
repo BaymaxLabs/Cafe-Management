@@ -18,6 +18,18 @@
 	<string>cafe_management</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- Firebase Phone Auth returns from the iOS reCAPTCHA verification here. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-986531542522-ios-e96a1687afc42194f8a043</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
@@ -26,6 +38,9 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Firebase Auth handles its own custom URL callback. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
