@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/router/app_routes.dart';
 import '../widgets/brew_logo.dart';
@@ -12,23 +16,69 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool _useOtp = false;
+  bool _isLoading = false;
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _otpController = TextEditingController();
   final _shopCodeController = TextEditingController();
 
   @override
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
-    _otpController.dispose();
     _shopCodeController.dispose();
     super.dispose();
   }
 
-  void _onLogin() {
-    // TODO: implement login logic
+  Future<void> _onLogin() async {
+    final phoneDigits = _phoneController.text.trim();
+    final password = _passwordController.text;
+    if (phoneDigits.length != 10 || !RegExp(r'^\d{10}$').hasMatch(phoneDigits)) {
+      _showError('Enter a valid 10-digit phone number.');
+      return;
+    }
+    if (password.isEmpty || _isLoading) {
+      if (password.isEmpty) _showError('Enter your password.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final result = await FirebaseFirestore.instance
+          .collection('user')
+          .where('phoneNumber', isEqualTo: '+91$phoneDigits')
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 12));
+      if (result.docs.isEmpty || result.docs.first.data()['password'] != password) {
+        _showError('The phone number or password is incorrect.');
+        return;
+      }
+
+      final details = <String, dynamic>{
+        ...result.docs.first.data(),
+        'shopCode': _shopCodeController.text.trim(),
+      };
+      if (mounted) {
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.dashboard,
+          arguments: details,
+        );
+      }
+    } on TimeoutException {
+      _showError('Login took too long. Please check your connection and retry.');
+    } on FirebaseException catch (error) {
+      _showError('Could not log in. ${error.message ?? 'Please try again.'}');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -109,16 +159,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const Spacer(),
                 _LoginForm(
-                  useOtp: _useOtp,
-                  onToggleMode: (val) => setState(() => _useOtp = val),
                   phoneController: _phoneController,
                   passwordController: _passwordController,
-                  otpController: _otpController,
                   shopCodeController: _shopCodeController,
                 ),
                 const SizedBox(height: 32),
                 PrimaryButton(
-                    label: 'Login', isLight: true, onTap: _onLogin),
+                    label: _isLoading ? 'Logging in...' : 'Login',
+                    isLight: true,
+                    enabled: !_isLoading,
+                    onTap: _onLogin),
                 const Spacer(),
               ],
             ),
@@ -155,11 +205,8 @@ class _LoginScreenState extends State<LoginScreen> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 32, 28, 0),
               child: _LoginForm(
-                useOtp: _useOtp,
-                onToggleMode: (val) => setState(() => _useOtp = val),
                 phoneController: _phoneController,
                 passwordController: _passwordController,
-                otpController: _otpController,
                 shopCodeController: _shopCodeController,
               ),
             ),
@@ -168,7 +215,10 @@ class _LoginScreenState extends State<LoginScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
             child: PrimaryButton(
-                label: 'Login', isLight: true, onTap: _onLogin),
+                label: _isLoading ? 'Logging in...' : 'Login',
+                isLight: true,
+                enabled: !_isLoading,
+                onTap: _onLogin),
           ),
         ],
       ),
@@ -180,19 +230,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
 class _LoginForm extends StatelessWidget {
   const _LoginForm({
-    required this.useOtp,
-    required this.onToggleMode,
     required this.phoneController,
     required this.passwordController,
-    required this.otpController,
     required this.shopCodeController,
   });
 
-  final bool useOtp;
-  final ValueChanged<bool> onToggleMode;
   final TextEditingController phoneController;
   final TextEditingController passwordController;
-  final TextEditingController otpController;
   final TextEditingController shopCodeController;
 
   @override
@@ -222,20 +266,9 @@ class _LoginForm extends StatelessWidget {
         _PhoneField(controller: phoneController),
         const SizedBox(height: 16),
 
-        // Password / OTP mode toggle
-        _AuthModeToggle(useOtp: useOtp, onChanged: onToggleMode),
-        const SizedBox(height: 16),
-
-        // Password or OTP input
-        if (!useOtp) ...[
-          const _FieldLabel(text: 'PASSWORD'),
-          const SizedBox(height: 8),
-          _PasswordField(controller: passwordController),
-        ] else ...[
-          const _FieldLabel(text: 'OTP'),
-          const SizedBox(height: 8),
-          _OtpField(controller: otpController),
-        ],
+        const _FieldLabel(text: 'PASSWORD'),
+        const SizedBox(height: 8),
+        _PasswordField(controller: passwordController),
         const SizedBox(height: 16),
 
         // Shop Code
@@ -244,7 +277,7 @@ class _LoginForm extends StatelessWidget {
         _ShopCodeField(controller: shopCodeController),
         const SizedBox(height: 6),
         const Text(
-          'Provided by your cafe owner.',
+          'Optional — provided by your cafe owner.',
           style: TextStyle(color: AppColors.textMuted, fontSize: 12),
         ),
       ],
@@ -333,12 +366,15 @@ class _PhoneField extends StatelessWidget {
             child: TextField(
               controller: controller,
               keyboardType: TextInputType.phone,
+              maxLength: 10,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               style: const TextStyle(color: AppColors.white, fontSize: 15),
               decoration: const InputDecoration(
                 hintText: '98765 43210',
                 hintStyle:
                     TextStyle(color: Color(0xFF555555), fontSize: 15),
                 border: InputBorder.none,
+                counterText: '',
                 contentPadding:
                     EdgeInsets.symmetric(vertical: 16, horizontal: 0),
               ),
@@ -351,74 +387,6 @@ class _PhoneField extends StatelessWidget {
   }
 }
 
-/// Password / OTP segmented toggle.
-class _AuthModeToggle extends StatelessWidget {
-  const _AuthModeToggle(
-      {required this.useOtp, required this.onChanged});
-  final bool useOtp;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          _ToggleTab(
-            label: 'Password',
-            isActive: !useOtp,
-            onTap: () => onChanged(false),
-          ),
-          _ToggleTab(
-            label: 'OTP',
-            isActive: useOtp,
-            onTap: () => onChanged(true),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToggleTab extends StatelessWidget {
-  const _ToggleTab(
-      {required this.label, required this.isActive, required this.onTap});
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color:
-                isActive ? const Color(0xFF2E2E2E) : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isActive ? AppColors.white : AppColors.textMuted,
-              fontSize: 14,
-              fontWeight:
-                  isActive ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Password field with show/hide toggle.
 class _PasswordField extends StatefulWidget {
@@ -451,25 +419,6 @@ class _PasswordFieldState extends State<_PasswordField> {
           onPressed: () => setState(() => _obscure = !_obscure),
         ),
       ),
-    );
-  }
-}
-
-/// 6-digit OTP field.
-class _OtpField extends StatelessWidget {
-  const _OtpField({required this.controller});
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      maxLength: 6,
-      style: const TextStyle(
-          color: AppColors.white, fontSize: 15, letterSpacing: 4),
-      decoration: _inputDecoration(hint: '_ _ _ _ _ _')
-          .copyWith(counterText: ''),
     );
   }
 }
