@@ -1,8 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../../core/router/app_routes.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import '../../../firebase_options.dart';
 import '../../../core/theme/app_colors.dart';
 import '../widgets/brew_logo.dart';
 import '../widgets/primary_button.dart';
@@ -15,13 +20,18 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  int _step = 1; // 1 = Phone, 2 = Verify
+  int _step = 1; // 1 = Phone, 2 = Verify, 3 = Password, 4 = Cafe, 5 = Ready
   int _phoneDigits = 0;
   bool _isLoading = false;
+  bool _passwordVisible = false;
+  bool _confirmPasswordVisible = false;
   String? _verificationId;
   ConfirmationResult? _webConfirmationResult;
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  final _cafeNameController = TextEditingController();
 
   @override
   void initState() {
@@ -29,12 +39,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.addListener(() {
       setState(() => _phoneDigits = _phoneController.text.length);
     });
+    _passwordController.addListener(_refresh);
+    _confirmPasswordController.addListener(_refresh);
+    _cafeNameController.addListener(_refresh);
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _phoneController.dispose();
     _otpController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _cafeNameController.dispose();
     super.dispose();
   }
 
@@ -105,7 +125,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
         await FirebaseAuth.instance.signInWithCredential(credential);
       }
-      if (mounted) Navigator.pushNamed(context, AppRoutes.comingSoon);
+      if (mounted) setState(() => _step = 3);
     } on FirebaseAuthException catch (error) {
       _showError(_messageFor(error));
     } on StateError catch (error) {
@@ -118,7 +138,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _finishNativeVerification(PhoneAuthCredential credential) async {
     try {
       await FirebaseAuth.instance.signInWithCredential(credential);
-      if (mounted) Navigator.pushNamed(context, AppRoutes.comingSoon);
+      if (mounted) setState(() => _step = 3);
     } on FirebaseAuthException catch (error) {
       _showError(_messageFor(error));
     }
@@ -146,23 +166,179 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 12),
-        ),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 12)),
       );
   }
 
   void _onBack(BuildContext context) {
-    if (_step == 2) {
+    if (_step > 1 && _step < 5) {
       setState(() {
-        _step = 1;
-        _otpController.clear();
+        _step -= 1;
+        if (_step == 1) {
+          _otpController.clear();
+        }
       });
     } else {
       Navigator.pop(context);
     }
   }
+
+  bool get _hasEightCharacters => _passwordController.text.length >= 8;
+  bool get _hasNumber => RegExp(r'\d').hasMatch(_passwordController.text);
+  bool get _hasSymbol =>
+      RegExp(r'[^A-Za-z0-9]').hasMatch(_passwordController.text);
+  bool get _passwordIsValid => _hasEightCharacters && _hasNumber && _hasSymbol;
+  bool get _passwordsMatch =>
+      _passwordController.text.isNotEmpty &&
+      _passwordController.text == _confirmPasswordController.text;
+
+  Future<void> _onPasswordContinue() async {
+    if (!_passwordIsValid) {
+      _showError('Use at least 8 characters, including a number and symbol.');
+      return;
+    }
+    if (!_passwordsMatch) {
+      _showError('Your passwords do not match.');
+      return;
+    }
+    setState(() => _step = 4);
+  }
+
+  Future<void> _onFinishSetup() async {
+    final cafeName = _cafeNameController.text.trim();
+    if (cafeName.isEmpty || _isLoading) {
+      if (cafeName.isEmpty) _showError('Enter your cafe or restaurant name.');
+      return;
+    }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showError(
+        'Your sign-in session has expired. Please verify your phone again.',
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await _writeProfileWithFirestore(user, cafeName)
+          .timeout(const Duration(seconds: 6));
+      if (mounted) {
+        setState(() => _step = 5);
+      }
+    } on TimeoutException {
+      try {
+        // The Firestore web SDK uses a persistent streaming channel which can
+        // be blocked by some networks. Use the authenticated REST API as a
+        // fallback so setup is not stranded on that connection.
+        await _writeProfileWithRest(user, cafeName)
+            .timeout(const Duration(seconds: 12));
+        if (mounted) {
+          setState(() => _step = 5);
+        }
+      } on TimeoutException {
+        _showError(
+          'Saving your cafe timed out. Please check your network and try again.',
+        );
+      } on StateError catch (error) {
+        _showError(error.message.toString());
+      } on Exception catch (error) {
+        debugPrint('Firestore REST fallback failed: $error');
+        _showError('Could not save your cafe. Please check your connection and try again.');
+      }
+    } on FirebaseException catch (error) {
+      _showError(
+        'Could not finish setup. ${error.message ?? 'Please try again.'}',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _writeProfileWithFirestore(User user, String cafeName) {
+    return FirebaseFirestore.instance.collection('user').doc(user.uid).set({
+      'uid': user.uid,
+      'phoneNumber': user.phoneNumber ?? _phoneNumber,
+      'password': _passwordController.text,
+      'cafeName': cafeName,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _writeProfileWithRest(User user, String cafeName) async {
+    final idToken = await user.getIdToken();
+    if (idToken == null) {
+      throw StateError(
+        'Your sign-in session has expired. Please verify your phone again.',
+      );
+    }
+
+    final projectId = DefaultFirebaseOptions.currentPlatform.projectId;
+    final documentName =
+        'projects/$projectId/databases/(default)/documents/user/${user.uid}';
+    final response = await http.post(
+      Uri.https(
+        'firestore.googleapis.com',
+        '/v1/projects/$projectId/databases/(default)/documents:commit',
+      ),
+      headers: {
+        'Authorization': 'Bearer $idToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'writes': [
+          {
+            'update': {
+              'name': documentName,
+              'fields': {
+                'uid': {'stringValue': user.uid},
+                'phoneNumber': {
+                  'stringValue': user.phoneNumber ?? _phoneNumber,
+                },
+                'password': {'stringValue': _passwordController.text},
+                'cafeName': {'stringValue': cafeName},
+              },
+            },
+            'updateTransforms': [
+              {'fieldPath': 'createdAt', 'setToServerValue': 'REQUEST_TIME'},
+            ],
+          },
+        ],
+      }),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      debugPrint(
+        'Firestore REST write failed: ${response.statusCode} ${response.body}',
+      );
+      throw StateError(
+        'Could not save your cafe (${response.statusCode}). Please try again.',
+      );
+    }
+  }
+
+  String get _actionLabel => switch (_step) {
+    1 => _isLoading ? 'Sending OTP...' : 'Send OTP',
+    2 => _isLoading ? 'Verifying...' : 'Verify',
+    3 => 'Continue',
+    4 => _isLoading ? 'Finishing setup...' : 'Finish Setup',
+    _ => 'Go to Orders',
+  };
+
+  bool get _actionEnabled => switch (_step) {
+    1 => !_isLoading && _phoneDigits == 10,
+    2 => !_isLoading,
+    3 => !_isLoading && _passwordIsValid && _passwordsMatch,
+    4 => !_isLoading && _cafeNameController.text.trim().isNotEmpty,
+    _ => true,
+  };
+
+  VoidCallback get _onAction => switch (_step) {
+    1 => _onSendOtp,
+    2 => _onVerify,
+    3 => _onPasswordContinue,
+    4 => _onFinishSetup,
+    _ => () {},
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -180,6 +356,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // ── Desktop layout ──────────────────────────────────────────────────────────
 
   Widget _buildDesktop(BuildContext context) {
+    if (_step == 5) {
+      return _SetupCompleteScreen(cafeName: _cafeNameController.text.trim());
+    }
     return Row(
       children: [
         // Left branding panel
@@ -247,16 +426,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   step: _step,
                   phoneController: _phoneController,
                   otpController: _otpController,
+                  passwordController: _passwordController,
+                  confirmPasswordController: _confirmPasswordController,
+                  cafeNameController: _cafeNameController,
+                  passwordVisible: _passwordVisible,
+                  confirmPasswordVisible: _confirmPasswordVisible,
+                  hasEightCharacters: _hasEightCharacters,
+                  hasNumber: _hasNumber,
+                  hasSymbol: _hasSymbol,
+                  onTogglePassword: () =>
+                      setState(() => _passwordVisible = !_passwordVisible),
+                  onToggleConfirmPassword: () => setState(
+                    () => _confirmPasswordVisible = !_confirmPasswordVisible,
+                  ),
                 ),
                 const SizedBox(height: 32),
                 PrimaryButton(
-                  label: _isLoading
-                      ? (_step == 1 ? 'Sending OTP...' : 'Verifying...')
-                      : (_step == 1 ? 'Send OTP' : 'Verify'),
+                  label: _actionLabel,
                   isLight: false,
-                  enabled:
-                      !_isLoading && (_step == 1 ? _phoneDigits == 10 : true),
-                  onTap: _step == 1 ? _onSendOtp : _onVerify,
+                  enabled: _actionEnabled,
+                  onTap: _onAction,
                 ),
                 const Spacer(),
               ],
@@ -270,6 +459,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // ── Mobile layout ───────────────────────────────────────────────────────────
 
   Widget _buildMobile(BuildContext context) {
+    if (_step == 5) {
+      return _SetupCompleteScreen(cafeName: _cafeNameController.text.trim());
+    }
     return SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,6 +493,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 step: _step,
                 phoneController: _phoneController,
                 otpController: _otpController,
+                passwordController: _passwordController,
+                confirmPasswordController: _confirmPasswordController,
+                cafeNameController: _cafeNameController,
+                passwordVisible: _passwordVisible,
+                confirmPasswordVisible: _confirmPasswordVisible,
+                hasEightCharacters: _hasEightCharacters,
+                hasNumber: _hasNumber,
+                hasSymbol: _hasSymbol,
+                onTogglePassword: () =>
+                    setState(() => _passwordVisible = !_passwordVisible),
+                onToggleConfirmPassword: () => setState(
+                  () => _confirmPasswordVisible = !_confirmPasswordVisible,
+                ),
               ),
             ),
           ),
@@ -308,12 +513,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
             child: PrimaryButton(
-              label: _isLoading
-                  ? (_step == 1 ? 'Sending OTP...' : 'Verifying...')
-                  : (_step == 1 ? 'Send OTP' : 'Verify'),
+              label: _actionLabel,
               isLight: false,
-              enabled: !_isLoading && (_step == 1 ? _phoneDigits == 10 : true),
-              onTap: _step == 1 ? _onSendOtp : _onVerify,
+              enabled: _actionEnabled,
+              onTap: _onAction,
             ),
           ),
         ],
@@ -329,11 +532,31 @@ class _RegisterForm extends StatelessWidget {
     required this.step,
     required this.phoneController,
     required this.otpController,
+    required this.passwordController,
+    required this.confirmPasswordController,
+    required this.cafeNameController,
+    required this.passwordVisible,
+    required this.confirmPasswordVisible,
+    required this.hasEightCharacters,
+    required this.hasNumber,
+    required this.hasSymbol,
+    required this.onTogglePassword,
+    required this.onToggleConfirmPassword,
   });
 
   final int step;
   final TextEditingController phoneController;
   final TextEditingController otpController;
+  final TextEditingController passwordController;
+  final TextEditingController confirmPasswordController;
+  final TextEditingController cafeNameController;
+  final bool passwordVisible;
+  final bool confirmPasswordVisible;
+  final bool hasEightCharacters;
+  final bool hasNumber;
+  final bool hasSymbol;
+  final VoidCallback onTogglePassword;
+  final VoidCallback onToggleConfirmPassword;
 
   @override
   Widget build(BuildContext context) {
@@ -342,7 +565,11 @@ class _RegisterForm extends StatelessWidget {
       children: [
         // Heading
         Text(
-          'Create account.',
+          step == 3
+              ? 'Set password.'
+              : step == 4
+              ? 'Name your cafe.'
+              : 'Create account.',
           style: Theme.of(context).textTheme.headlineLarge?.copyWith(
             color: AppColors.white,
             fontWeight: FontWeight.w800,
@@ -351,7 +578,11 @@ class _RegisterForm extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Let\'s get your cafe set up.',
+          step == 3
+              ? 'Choose a strong password for your account.'
+              : step == 4
+              ? 'This will be shown to your team and customers.'
+              : 'Let\'s get your cafe set up.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 28),
@@ -365,9 +596,29 @@ class _RegisterForm extends StatelessWidget {
           duration: const Duration(milliseconds: 220),
           transitionBuilder: (child, animation) =>
               FadeTransition(opacity: animation, child: child),
-          child: step == 1
-              ? _PhoneStep(key: const ValueKey(1), controller: phoneController)
-              : _VerifyStep(key: const ValueKey(2), controller: otpController),
+          child: switch (step) {
+            1 => _PhoneStep(
+              key: const ValueKey(1),
+              controller: phoneController,
+            ),
+            2 => _VerifyStep(key: const ValueKey(2), controller: otpController),
+            3 => _PasswordStep(
+              key: const ValueKey(3),
+              passwordController: passwordController,
+              confirmPasswordController: confirmPasswordController,
+              passwordVisible: passwordVisible,
+              confirmPasswordVisible: confirmPasswordVisible,
+              hasEightCharacters: hasEightCharacters,
+              hasNumber: hasNumber,
+              hasSymbol: hasSymbol,
+              onTogglePassword: onTogglePassword,
+              onToggleConfirmPassword: onToggleConfirmPassword,
+            ),
+            _ => _CafeNameStep(
+              key: const ValueKey(4),
+              controller: cafeNameController,
+            ),
+          },
         ),
       ],
     );
@@ -382,19 +633,33 @@ class _StepIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _StepDot(number: 1, label: 'Phone', isActive: currentStep >= 1),
-        // Connector line
-        Expanded(
-          child: Container(
-            height: 1,
-            margin: const EdgeInsets.symmetric(horizontal: 8),
-            color: currentStep >= 2 ? AppColors.white : const Color(0xFF3A3A3A),
-          ),
-        ),
-        _StepDot(number: 2, label: 'Verify', isActive: currentStep >= 2),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _StepDot(number: 1, label: 'Phone', currentStep: currentStep),
+          const _StepConnector(),
+          _StepDot(number: 2, label: 'Verify', currentStep: currentStep),
+          const _StepConnector(),
+          _StepDot(number: 3, label: 'Password', currentStep: currentStep),
+          const _StepConnector(),
+          _StepDot(number: 4, label: 'Cafe', currentStep: currentStep),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepConnector extends StatelessWidget {
+  const _StepConnector();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 1,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: const Color(0xFF2A2A2A),
     );
   }
 }
@@ -403,14 +668,16 @@ class _StepDot extends StatelessWidget {
   const _StepDot({
     required this.number,
     required this.label,
-    required this.isActive,
+    required this.currentStep,
   });
   final int number;
   final String label;
-  final bool isActive;
+  final int currentStep;
 
   @override
   Widget build(BuildContext context) {
+    final isComplete = currentStep > number;
+    final isActive = currentStep == number;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -420,32 +687,403 @@ class _StepDot extends StatelessWidget {
           height: 28,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isActive ? AppColors.white : Colors.transparent,
+            color: isComplete
+                ? AppColors.gold
+                : (isActive ? AppColors.loginButton : const Color(0xFF222222)),
             border: Border.all(
-              color: isActive ? AppColors.white : const Color(0xFF555555),
+              color: isComplete || isActive
+                  ? Colors.transparent
+                  : const Color(0xFF2A2A2A),
               width: 1.5,
             ),
           ),
           alignment: Alignment.center,
-          child: Text(
-            '$number',
-            style: TextStyle(
-              color: isActive ? AppColors.background : const Color(0xFF555555),
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          child: isComplete
+              ? const Icon(
+                  Icons.check_rounded,
+                  color: AppColors.background,
+                  size: 17,
+                )
+              : Text(
+                  '$number',
+                  style: TextStyle(
+                    color: isActive
+                        ? AppColors.background
+                        : const Color(0xFF777777),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
         ),
         const SizedBox(width: 8),
         Text(
           label,
           style: TextStyle(
-            color: isActive ? AppColors.white : const Color(0xFF555555),
+            color: isComplete || isActive
+                ? AppColors.white
+                : const Color(0xFF777777),
             fontSize: 13,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+            fontWeight: isComplete || isActive
+                ? FontWeight.w600
+                : FontWeight.w400,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PasswordStep extends StatelessWidget {
+  const _PasswordStep({
+    super.key,
+    required this.passwordController,
+    required this.confirmPasswordController,
+    required this.passwordVisible,
+    required this.confirmPasswordVisible,
+    required this.hasEightCharacters,
+    required this.hasNumber,
+    required this.hasSymbol,
+    required this.onTogglePassword,
+    required this.onToggleConfirmPassword,
+  });
+
+  final TextEditingController passwordController;
+  final TextEditingController confirmPasswordController;
+  final bool passwordVisible;
+  final bool confirmPasswordVisible;
+  final bool hasEightCharacters;
+  final bool hasNumber;
+  final bool hasSymbol;
+  final VoidCallback onTogglePassword;
+  final VoidCallback onToggleConfirmPassword;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _FieldLabel(text: 'PASSWORD'),
+        const SizedBox(height: 8),
+        _PasswordField(
+          controller: passwordController,
+          visible: passwordVisible,
+          hint: 'Min. 8 characters',
+          onToggle: onTogglePassword,
+        ),
+        const SizedBox(height: 20),
+        const _FieldLabel(text: 'CONFIRM PASSWORD'),
+        const SizedBox(height: 8),
+        _PasswordField(
+          controller: confirmPasswordController,
+          visible: confirmPasswordVisible,
+          hint: 'Re-enter password',
+          onToggle: onToggleConfirmPassword,
+        ),
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 14,
+          runSpacing: 8,
+          children: [
+            _PasswordRequirement(label: '8+ chars', met: hasEightCharacters),
+            _PasswordRequirement(label: 'Number', met: hasNumber),
+            _PasswordRequirement(label: 'Symbol', met: hasSymbol),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PasswordField extends StatelessWidget {
+  const _PasswordField({
+    required this.controller,
+    required this.visible,
+    required this.hint,
+    required this.onToggle,
+  });
+
+  final TextEditingController controller;
+  final bool visible;
+  final String hint;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      obscureText: !visible,
+      enableSuggestions: false,
+      autocorrect: false,
+      style: const TextStyle(color: AppColors.white, fontSize: 15),
+      decoration: _inputDecoration(
+        hint: hint,
+        suffix: TextButton(
+          onPressed: onToggle,
+          child: Text(
+            visible ? 'Hide' : 'Show',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PasswordRequirement extends StatelessWidget {
+  const _PasswordRequirement({required this.label, required this.met});
+
+  final String label;
+  final bool met;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = met ? const Color(0xFF20D67A) : const Color(0xFF555555);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 7),
+        Text(label, style: TextStyle(color: color, fontSize: 12)),
+      ],
+    );
+  }
+}
+
+class _CafeNameStep extends StatelessWidget {
+  const _CafeNameStep({super.key, required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _FieldLabel(text: 'CAFE / RESTAURANT NAME'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          textCapitalization: TextCapitalization.words,
+          style: const TextStyle(color: AppColors.white, fontSize: 15),
+          decoration: _inputDecoration(hint: 'e.g. The Brew House'),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'This name will appear on your orders, QR codes and staff app.',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 12,
+            height: 1.45,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SetupCompleteScreen extends StatelessWidget {
+  const _SetupCompleteScreen({required this.cafeName});
+
+  final String cafeName;
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = MediaQuery.sizeOf(context).width >= 800;
+    final content = _CompletionContent(cafeName: cafeName);
+    return SafeArea(
+      child: isWide
+          ? Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 64,
+                      vertical: 48,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const BrewLogo(),
+                        const Spacer(),
+                        Text(
+                          'Open\nyour cafe.',
+                          style: Theme.of(context).textTheme.displayLarge,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Register your cafe and get your team up and running.',
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                        const Spacer(),
+                        const Text(
+                          '© 2025 Brew · Cafe Management',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(width: 1, color: const Color(0xFF2A2A2A)),
+                SizedBox(
+                  width: 580,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 452),
+                      child: content,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(28, 42, 28, 32),
+              child: content,
+            ),
+    );
+  }
+}
+
+class _CompletionContent extends StatelessWidget {
+  const _CompletionContent({required this.cafeName});
+
+  final String cafeName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 74,
+          height: 74,
+          decoration: BoxDecoration(
+            color: const Color(0xFF173425),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: const Icon(
+            Icons.check_circle_outline_rounded,
+            color: Color(0xFF20D67A),
+            size: 36,
+          ),
+        ),
+        const SizedBox(height: 34),
+        Text(
+          'Welcome,',
+          style: Theme.of(
+            context,
+          ).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        Text(
+          '$cafeName!',
+          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+            color: AppColors.gold,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Your account is ready. Complete a few tasks to hit the ground running.',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 30),
+        const _TaskCard(
+          icon: Icons.format_list_bulleted_rounded,
+          title: 'Add your menu',
+          subtitle: 'Add items with prices, photos and categories',
+        ),
+        const SizedBox(height: 12),
+        const _TaskCard(
+          icon: Icons.grid_view_rounded,
+          title: 'Set up inventory',
+          subtitle: 'Add raw materials, set stock limits and alerts',
+        ),
+        const SizedBox(height: 12),
+        const _TaskCard(
+          icon: Icons.person_add_alt_1_rounded,
+          title: 'Add your team',
+          subtitle: 'Invite staff, assign roles and set permissions',
+        ),
+        const SizedBox(height: 34),
+        PrimaryButton(label: 'Go to Orders', isLight: true, onTap: () {}),
+      ],
+    );
+  }
+}
+
+class _TaskCard extends StatelessWidget {
+  const _TaskCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF222222),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFF292929),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: AppColors.gold, size: 25),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF2B2B2B), width: 2),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
