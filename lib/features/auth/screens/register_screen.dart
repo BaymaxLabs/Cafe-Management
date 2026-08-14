@@ -70,8 +70,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } on FirebaseAuthException catch (error) {
       _showError(_messageFor(error));
-    } catch (_) {
-      _showError('Unable to send an OTP. Please try again.');
+    } catch (error, stackTrace) {
+      debugPrintStack(
+        label: 'Phone Auth send OTP error: $error',
+        stackTrace: stackTrace,
+      );
+      _showError('Unexpected error: $error');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -120,19 +124,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  String _messageFor(FirebaseAuthException error) => switch (error.code) {
-    'invalid-phone-number' => 'Enter a valid phone number.',
-    'invalid-verification-code' => 'That code is incorrect. Try again.',
-    'session-expired' => 'This OTP has expired. Request a new one.',
-    'too-many-requests' => 'Too many attempts. Please wait and try again.',
-    _ => error.message ?? 'Something went wrong. Please try again.',
-  };
+  String _messageFor(FirebaseAuthException error) {
+    final summary = switch (error.code) {
+      'invalid-phone-number' => 'The phone number is invalid.',
+      'invalid-verification-code' => 'The verification code is incorrect.',
+      'session-expired' => 'The OTP session has expired.',
+      'too-many-requests' => 'Firebase is rate-limiting requests.',
+      _ => 'Firebase could not complete this request.',
+    };
+    final firebaseMessage = error.message?.trim();
+    final details = firebaseMessage == null || firebaseMessage.isEmpty
+        ? ''
+        : '\n$firebaseMessage';
+
+    debugPrint('Firebase phone auth error [${error.code}]: $firebaseMessage');
+    return '$summary\nCode: ${error.code}$details';
+  }
 
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 12),
+        ),
+      );
   }
 
   void _onBack(BuildContext context) {

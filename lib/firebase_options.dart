@@ -22,12 +22,13 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyASbfCgzknKxtu4QaJSMlej1-Xt8JrhFE8',
-    appId: '1:986531542522:web:cafeman-3edff',
+    apiKey: 'AIzaSyDRttnfgXnQvJTpoTnzNWuyPrFHPTUmu_E',
+    appId: '1:986531542522:web:e81b3278c5f1d2e8f8a043',
     messagingSenderId: '986531542522',
     projectId: 'cafeman-3edff',
     authDomain: 'cafeman-3edff.firebaseapp.com',
     storageBucket: 'cafeman-3edff.firebasestorage.app',
+    measurementId: 'G-NVR59LNS32',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
