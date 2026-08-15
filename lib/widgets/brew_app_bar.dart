@@ -18,12 +18,11 @@ class BrewAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onNotificationTap;
 
   @override
-  Size get preferredSize => const Size.fromHeight(64);
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: preferredSize.height,
       color: AppColors.surface,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: SafeArea(

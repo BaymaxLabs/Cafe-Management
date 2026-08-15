@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
-import '../core/router/app_routes.dart';
 
 enum BrewNavTab { orders, ops, menu, analytics, settings }
 
@@ -9,43 +8,34 @@ class BrewBottomNav extends StatelessWidget {
     super.key,
     required this.currentTab,
     this.unreadTabs = const {},
-    this.onTabSelected,
+    required this.onTabSelected,
   });
 
   final BrewNavTab currentTab;
   final Set<BrewNavTab> unreadTabs;
-  final ValueChanged<BrewNavTab>? onTabSelected;
+  final ValueChanged<BrewNavTab> onTabSelected;
 
   static const _tabs = [
     _NavTabData(
       tab: BrewNavTab.orders,
       label: 'Orders',
       icon: Icons.grid_view_rounded,
-      route: AppRoutes.dashboard,
     ),
-    _NavTabData(
-      tab: BrewNavTab.ops,
-      label: 'Ops',
-      icon: Icons.tune_rounded,
-      route: AppRoutes.comingSoon,
-    ),
+    _NavTabData(tab: BrewNavTab.ops, label: 'Ops', icon: Icons.tune_rounded),
     _NavTabData(
       tab: BrewNavTab.menu,
       label: 'Menu',
       icon: Icons.menu_book_rounded,
-      route: AppRoutes.comingSoon,
     ),
     _NavTabData(
       tab: BrewNavTab.analytics,
       label: 'Analytics',
       icon: Icons.show_chart_rounded,
-      route: AppRoutes.comingSoon,
     ),
     _NavTabData(
       tab: BrewNavTab.settings,
       label: 'Settings',
       icon: Icons.settings_outlined,
-      route: AppRoutes.comingSoon,
     ),
   ];
 
@@ -57,15 +47,13 @@ class BrewBottomNav extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 60,
-          child: Row(
-            children: _tabs.map((data) => _buildTab(context, data)).toList(),
-          ),
+          child: Row(children: _tabs.map((data) => _buildTab(data)).toList()),
         ),
       ),
     );
   }
 
-  Widget _buildTab(BuildContext context, _NavTabData data) {
+  Widget _buildTab(_NavTabData data) {
     final isSelected = currentTab == data.tab;
     final hasUnread = unreadTabs.contains(data.tab) && !isSelected;
     final color = isSelected ? AppColors.gold : AppColors.textMuted;
@@ -73,17 +61,10 @@ class BrewBottomNav extends StatelessWidget {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          if (onTabSelected != null) {
-            onTabSelected!(data.tab);
-          } else {
-            Navigator.pushReplacementNamed(context, data.route);
-          }
-        },
+        onTap: () => onTabSelected(data.tab),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
           children: [
-            // selected indicator line
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               height: 2,
@@ -134,11 +115,9 @@ class _NavTabData {
     required this.tab,
     required this.label,
     required this.icon,
-    required this.route,
   });
 
   final BrewNavTab tab;
   final String label;
   final IconData icon;
-  final String route;
 }
