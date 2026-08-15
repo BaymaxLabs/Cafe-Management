@@ -26,10 +26,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isSendingOtp = false;
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
+  bool _emailCredentialLinked = false;
   String? _verificationId;
   ConfirmationResult? _webConfirmationResult;
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _cafeNameController = TextEditingController();
@@ -42,6 +44,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
     _passwordController.addListener(_refresh);
     _confirmPasswordController.addListener(_refresh);
+    _emailController.addListener(_refresh);
     _cafeNameController.addListener(_refresh);
   }
 
@@ -53,6 +56,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _phoneController.dispose();
     _otpController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _cafeNameController.dispose();
@@ -166,6 +170,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       'invalid-verification-code' => 'The verification code is incorrect.',
       'session-expired' => 'The OTP session has expired.',
       'too-many-requests' => 'Firebase is rate-limiting requests.',
+      'email-already-in-use' =>
+        'This email address is already linked to another account.',
+      'credential-already-in-use' =>
+        'This email address is already linked to another account.',
+      'invalid-email' => 'Enter a valid email address.',
+      'weak-password' => 'Choose a stronger password.',
       _ => 'Firebase could not complete this request.',
     };
     final firebaseMessage = error.message?.trim();
@@ -208,7 +218,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _passwordController.text.isNotEmpty &&
       _passwordController.text == _confirmPasswordController.text;
 
+  bool get _emailIsValid => RegExp(
+    r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+  ).hasMatch(_emailController.text.trim());
+
   Future<void> _onPasswordContinue() async {
+    final email = _emailController.text.trim();
+    if (!_emailIsValid) {
+      _showError(
+        'Enter a valid email address for password sign-in and recovery.',
+      );
+      return;
+    }
     if (!_passwordIsValid) {
       _showError('Use at least 8 characters, including a number and symbol.');
       return;
@@ -217,7 +238,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _showError('Your passwords do not match.');
       return;
     }
-    setState(() => _step = 4);
+    if (_emailCredentialLinked) {
+      setState(() => _step = 4);
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showError(
+        'Your sign-in session has expired. Please verify your phone again.',
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await user.linkWithCredential(
+        EmailAuthProvider.credential(
+          email: email,
+          password: _passwordController.text,
+        ),
+      );
+      await FirebaseAuth.instance.currentUser?.sendEmailVerification();
+      if (mounted) {
+        setState(() {
+          _emailCredentialLinked = true;
+          _step = 4;
+        });
+      }
+    } on FirebaseAuthException catch (error) {
+      _showError(_messageFor(error));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _onFinishSetup() async {
@@ -236,8 +289,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await _writeProfileWithFirestore(user, cafeName)
-          .timeout(const Duration(seconds: 6));
+      await _writeProfileWithFirestore(
+        user,
+        cafeName,
+      ).timeout(const Duration(seconds: 6));
       if (mounted) {
         setState(() => _step = 5);
       }
@@ -246,8 +301,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         // The Firestore web SDK uses a persistent streaming channel which can
         // be blocked by some networks. Use the authenticated REST API as a
         // fallback so setup is not stranded on that connection.
-        await _writeProfileWithRest(user, cafeName)
-            .timeout(const Duration(seconds: 12));
+        await _writeProfileWithRest(
+          user,
+          cafeName,
+        ).timeout(const Duration(seconds: 12));
         if (mounted) {
           setState(() => _step = 5);
         }
@@ -259,7 +316,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _showError(error.message.toString());
       } on Exception catch (error) {
         debugPrint('Firestore REST fallback failed: $error');
-        _showError('Could not save your cafe. Please check your connection and try again.');
+        _showError(
+          'Could not save your cafe. Please check your connection and try again.',
+        );
       }
     } on FirebaseException catch (error) {
       _showError(
@@ -274,7 +333,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return FirebaseFirestore.instance.collection('user').doc(user.uid).set({
       'uid': user.uid,
       'phoneNumber': user.phoneNumber ?? _phoneNumber,
-      'password': _passwordController.text,
+      'email': user.email ?? _emailController.text.trim(),
+      'emailVerified': user.emailVerified,
       'cafeName': cafeName,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -310,7 +370,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 'phoneNumber': {
                   'stringValue': user.phoneNumber ?? _phoneNumber,
                 },
-                'password': {'stringValue': _passwordController.text},
+                'email': {
+                  'stringValue': user.email ?? _emailController.text.trim(),
+                },
+                'emailVerified': {'booleanValue': user.emailVerified},
                 'cafeName': {'stringValue': cafeName},
               },
             },
@@ -335,7 +398,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String get _actionLabel => switch (_step) {
     1 => _isSendingOtp ? 'Sending OTP...' : 'Send OTP',
     2 => _isLoading ? 'Verifying...' : 'Verify',
-    3 => 'Continue',
+    3 => _isLoading ? 'Securing account...' : 'Continue',
     4 => _isLoading ? 'Finishing setup...' : 'Finish Setup',
     _ => 'Go to Orders',
   };
@@ -343,7 +406,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool get _actionEnabled => switch (_step) {
     1 => !_isSendingOtp && !_isLoading && _phoneDigits == 10,
     2 => !_isLoading,
-    3 => !_isLoading && _passwordIsValid && _passwordsMatch,
+    3 => !_isLoading && _emailIsValid && _passwordIsValid && _passwordsMatch,
     4 => !_isLoading && _cafeNameController.text.trim().isNotEmpty,
     _ => true,
   };
@@ -442,6 +505,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   step: _step,
                   phoneController: _phoneController,
                   otpController: _otpController,
+                  emailController: _emailController,
                   passwordController: _passwordController,
                   confirmPasswordController: _confirmPasswordController,
                   cafeNameController: _cafeNameController,
@@ -509,6 +573,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 step: _step,
                 phoneController: _phoneController,
                 otpController: _otpController,
+                emailController: _emailController,
                 passwordController: _passwordController,
                 confirmPasswordController: _confirmPasswordController,
                 cafeNameController: _cafeNameController,
@@ -548,6 +613,7 @@ class _RegisterForm extends StatelessWidget {
     required this.step,
     required this.phoneController,
     required this.otpController,
+    required this.emailController,
     required this.passwordController,
     required this.confirmPasswordController,
     required this.cafeNameController,
@@ -563,6 +629,7 @@ class _RegisterForm extends StatelessWidget {
   final int step;
   final TextEditingController phoneController;
   final TextEditingController otpController;
+  final TextEditingController emailController;
   final TextEditingController passwordController;
   final TextEditingController confirmPasswordController;
   final TextEditingController cafeNameController;
@@ -582,7 +649,7 @@ class _RegisterForm extends StatelessWidget {
         // Heading
         Text(
           step == 3
-              ? 'Set password.'
+              ? 'Secure your account.'
               : step == 4
               ? 'Name your cafe.'
               : 'Create account.',
@@ -595,7 +662,7 @@ class _RegisterForm extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           step == 3
-              ? 'Choose a strong password for your account.'
+              ? 'Use your email and password to sign in without an SMS.'
               : step == 4
               ? 'This will be shown to your team and customers.'
               : 'Let\'s get your cafe set up.',
@@ -620,6 +687,7 @@ class _RegisterForm extends StatelessWidget {
             2 => _VerifyStep(key: const ValueKey(2), controller: otpController),
             3 => _PasswordStep(
               key: const ValueKey(3),
+              emailController: emailController,
               passwordController: passwordController,
               confirmPasswordController: confirmPasswordController,
               passwordVisible: passwordVisible,
@@ -657,7 +725,7 @@ class _StepIndicator extends StatelessWidget {
           const _StepConnector(),
           _StepDot(number: 2, label: 'Verify', currentStep: currentStep),
           const _StepConnector(),
-          _StepDot(number: 3, label: 'Password', currentStep: currentStep),
+          _StepDot(number: 3, label: 'Account', currentStep: currentStep),
           const _StepConnector(),
           _StepDot(number: 4, label: 'Cafe', currentStep: currentStep),
         ],
@@ -752,6 +820,7 @@ class _StepDot extends StatelessWidget {
 class _PasswordStep extends StatelessWidget {
   const _PasswordStep({
     super.key,
+    required this.emailController,
     required this.passwordController,
     required this.confirmPasswordController,
     required this.passwordVisible,
@@ -764,6 +833,7 @@ class _PasswordStep extends StatelessWidget {
   });
 
   final TextEditingController passwordController;
+  final TextEditingController emailController;
   final TextEditingController confirmPasswordController;
   final bool passwordVisible;
   final bool confirmPasswordVisible;
@@ -778,6 +848,17 @@ class _PasswordStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const _FieldLabel(text: 'EMAIL ADDRESS'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: emailController,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          autocorrect: false,
+          style: const TextStyle(color: AppColors.white, fontSize: 15),
+          decoration: _inputDecoration(hint: 'you@example.com'),
+        ),
+        const SizedBox(height: 20),
         const _FieldLabel(text: 'PASSWORD'),
         const SizedBox(height: 8),
         _PasswordField(
@@ -1006,7 +1087,7 @@ class _CompletionContent extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Your account is ready. Complete a few tasks to hit the ground running.',
+          'Your account is ready. We sent a verification link to your email—open it to confirm your recovery address.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 30),
