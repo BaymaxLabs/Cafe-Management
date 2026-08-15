@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 
 class FeatureItem extends StatelessWidget {
-  const FeatureItem({
-    super.key,
-    required this.title,
-    required this.subtitle,
-  });
+  const FeatureItem({super.key, required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;

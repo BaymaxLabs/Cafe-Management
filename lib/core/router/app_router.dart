@@ -4,7 +4,7 @@ import '../../features/auth/screens/landing_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/auth/screens/coming_soon_screen.dart';
-import '../../features/home/screens/home_screen.dart';
+import '../../features/orders/screens/orders_screen.dart';
 
 class AppRouter {
   AppRouter._();
@@ -21,7 +21,7 @@ class AppRouter {
         return _fade(const ComingSoonScreen());
       case AppRoutes.dashboard:
         final userDetails = settings.arguments as Map<String, dynamic>? ?? {};
-        return _fade(HomeScreen(userDetails: userDetails));
+        return _fade(OrdersScreen(userDetails: userDetails));
       default:
         return _fade(const LandingScreen());
     }
