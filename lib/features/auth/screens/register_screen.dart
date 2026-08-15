@@ -23,6 +23,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   int _step = 1; // 1 = Phone, 2 = Verify, 3 = Password, 4 = Cafe, 5 = Ready
   int _phoneDigits = 0;
   bool _isLoading = false;
+  bool _isSendingOtp = false;
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
   String? _verificationId;
@@ -61,9 +62,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String get _phoneNumber => '+91${_phoneController.text.trim()}';
 
   Future<void> _onSendOtp() async {
-    if (_phoneDigits != 10 || _isLoading) return;
+    if (_phoneDigits != 10 || _isSendingOtp || _isLoading) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _isSendingOtp = true);
     try {
       if (kIsWeb) {
         // Firebase displays and verifies the web reCAPTCHA before sending SMS.
@@ -74,30 +75,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await FirebaseAuth.instance.verifyPhoneNumber(
           phoneNumber: _phoneNumber,
           verificationCompleted: _finishNativeVerification,
-          verificationFailed: (error) => _showError(_messageFor(error)),
+          verificationFailed: (error) {
+            if (mounted) setState(() => _isSendingOtp = false);
+            _showError(_messageFor(error));
+          },
           codeSent: (verificationId, _) {
             if (mounted) {
               setState(() {
                 _verificationId = verificationId;
                 _step = 2;
+                _isSendingOtp = false;
               });
             }
           },
           codeAutoRetrievalTimeout: (verificationId) {
             _verificationId = verificationId;
+            if (mounted) setState(() => _isSendingOtp = false);
           },
         );
       }
     } on FirebaseAuthException catch (error) {
+      if (mounted) setState(() => _isSendingOtp = false);
       _showError(_messageFor(error));
     } catch (error, stackTrace) {
+      if (mounted) setState(() => _isSendingOtp = false);
       debugPrintStack(
         label: 'Phone Auth send OTP error: $error',
         stackTrace: stackTrace,
       );
       _showError('Unexpected error: $error');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      // On native, verifyPhoneNumber returns before Firebase has sent the SMS.
+      // Keep the button disabled until codeSent or verificationFailed runs.
+      if (mounted && kIsWeb) setState(() => _isSendingOtp = false);
     }
   }
 
@@ -138,8 +148,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _finishNativeVerification(PhoneAuthCredential credential) async {
     try {
       await FirebaseAuth.instance.signInWithCredential(credential);
-      if (mounted) setState(() => _step = 3);
+      if (mounted) {
+        setState(() {
+          _isSendingOtp = false;
+          _step = 3;
+        });
+      }
     } on FirebaseAuthException catch (error) {
+      if (mounted) setState(() => _isSendingOtp = false);
       _showError(_messageFor(error));
     }
   }
@@ -317,7 +333,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   String get _actionLabel => switch (_step) {
-    1 => _isLoading ? 'Sending OTP...' : 'Send OTP',
+    1 => _isSendingOtp ? 'Sending OTP...' : 'Send OTP',
     2 => _isLoading ? 'Verifying...' : 'Verify',
     3 => 'Continue',
     4 => _isLoading ? 'Finishing setup...' : 'Finish Setup',
@@ -325,7 +341,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   };
 
   bool get _actionEnabled => switch (_step) {
-    1 => !_isLoading && _phoneDigits == 10,
+    1 => !_isSendingOtp && !_isLoading && _phoneDigits == 10,
     2 => !_isLoading,
     3 => !_isLoading && _passwordIsValid && _passwordsMatch,
     4 => !_isLoading && _cafeNameController.text.trim().isNotEmpty,
