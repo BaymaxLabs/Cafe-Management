@@ -110,7 +110,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   String get _shopName =>
       widget.userDetails['cafeName'] as String? ?? 'Brew Co.';
-  String get _shopCode => widget.userDetails['shopCode'] as String? ?? 'T001';
+  String get _shopCode {
+    final shopCode = widget.userDetails['shopCode'] as String? ?? '';
+    return shopCode.trim().isEmpty ? 'T001' : shopCode.trim();
+  }
   String get _userName => widget.userDetails['cafeName'] as String? ?? 'Staff';
   String get _userRole => 'Staff';
   String get _userInitial =>

@@ -185,10 +185,15 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     }
     if (!mounted) return;
+    final userDetails = Map<String, dynamic>.from(profile.data()!);
+    final enteredShopCode = _shopCode.text.trim();
+    if (enteredShopCode.isNotEmpty) {
+      userDetails['shopCode'] = enteredShopCode;
+    }
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.dashboard,
-      arguments: {...profile.data()!, 'shopCode': _shopCode.text.trim()},
+      arguments: userDetails,
     );
   }
 

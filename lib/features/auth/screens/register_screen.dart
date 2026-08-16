@@ -336,6 +336,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       'email': user.email ?? _emailController.text.trim(),
       'emailVerified': user.emailVerified,
       'cafeName': cafeName,
+      'shopCode': 'T001',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -375,6 +376,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 },
                 'emailVerified': {'booleanValue': user.emailVerified},
                 'cafeName': {'stringValue': cafeName},
+                'shopCode': {'stringValue': 'T001'},
               },
             },
             'updateTransforms': [
