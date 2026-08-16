@@ -100,6 +100,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   _FilterTab _filter = _FilterTab.all;
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isGridView = true;
 
   @override
   void dispose() {
@@ -169,19 +170,37 @@ class _OrdersScreenState extends State<OrdersScreen> {
       userInitial: _userInitial,
       notificationCount: 3,
       unreadTabs: const {BrewNavTab.analytics},
-      body: _body(),
+      body: _body(context),
     );
   }
 
-  Widget _body() {
+  Widget _body(BuildContext context) {
+    final isWide = MediaQuery.sizeOf(context).width >= 800;
+    final useGrid = isWide && _isGridView;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: _SearchBar(
-            controller: _searchController,
-            onChanged: (v) => setState(() => _searchQuery = v),
+          child: Row(
+            children: [
+              Expanded(
+                child: _SearchBar(
+                  controller: _searchController,
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                ),
+              ),
+              if (isWide) ...[
+                const SizedBox(width: 12),
+                _ViewToggle(
+                  isGridView: _isGridView,
+                  onChanged: (isGridView) {
+                    setState(() => _isGridView = isGridView);
+                  },
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(height: 12),
@@ -193,20 +212,104 @@ class _OrdersScreenState extends State<OrdersScreen> {
         const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Swipe right or hold to mark complete',
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+          child: Row(
+            children: [
+              const Text(
+                'Swipe right or hold to mark complete',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            itemCount: _filteredOrders.length,
-            itemBuilder: (_, i) => OrderCard(order: _filteredOrders[i]),
-          ),
+          child: useGrid
+              ? GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                        // Automatically add columns as space becomes available,
+                        // instead of using large viewport breakpoints.
+                        maxCrossAxisExtent: 320,
+                        mainAxisExtent: 280,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                      ),
+                  itemCount: _filteredOrders.length,
+                  itemBuilder: (_, i) => OrderCard(
+                    order: _filteredOrders[i],
+                    isGridTile: true,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  itemCount: _filteredOrders.length,
+                  itemBuilder: (_, i) => OrderCard(order: _filteredOrders[i]),
+                ),
         ),
       ],
+    );
+  }
+}
+
+class _ViewToggle extends StatelessWidget {
+  const _ViewToggle({required this.isGridView, required this.onChanged});
+
+  final bool isGridView;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2A2A2A)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ViewToggleButton(
+            tooltip: 'List view',
+            icon: Icons.view_list_rounded,
+            isSelected: !isGridView,
+            onPressed: () => onChanged(false),
+          ),
+          _ViewToggleButton(
+            tooltip: 'Grid view',
+            icon: Icons.grid_view_rounded,
+            isSelected: isGridView,
+            onPressed: () => onChanged(true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ViewToggleButton extends StatelessWidget {
+  const _ViewToggleButton({
+    required this.tooltip,
+    required this.icon,
+    required this.isSelected,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        color: isSelected ? AppColors.white : AppColors.textMuted,
+        visualDensity: VisualDensity.compact,
+      ),
     );
   }
 }

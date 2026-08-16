@@ -3,10 +3,16 @@ import '../../../core/theme/app_colors.dart';
 import '../models/order.dart';
 
 class OrderCard extends StatelessWidget {
-  const OrderCard({super.key, required this.order, this.onAssign});
+  const OrderCard({
+    super.key,
+    required this.order,
+    this.onAssign,
+    this.isGridTile = false,
+  });
 
   final Order order;
   final VoidCallback? onAssign;
+  final bool isGridTile;
 
   Color get _statusColor {
     switch (order.status) {
@@ -40,10 +46,16 @@ class OrderCard extends StatelessWidget {
     return '${remaining}m remaining';
   }
 
+  String get _gridSlaText {
+    final remaining = order.slaRemainingMinutes;
+    if (remaining < 0) return '+${(-remaining)}m';
+    return '${remaining}m left';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: isGridTile ? EdgeInsets.zero : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(12),
@@ -71,38 +83,60 @@ class OrderCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            // Table + items
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  order.table,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
-                  ),
+            // Grid cards give the item list its own line to keep the layout
+            // balanced; the compact list preserves its denser side-by-side view.
+            if (isGridTile)
+              Text(
+                order.table,
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
                 ),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    order.itemsLabel,
-                    textAlign: TextAlign.right,
+              )
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    order.table,
                     style: const TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 12,
+                      color: AppColors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
-            ),
+                  const Spacer(),
+                  Flexible(
+                    child: Text(
+                      order.itemsLabel,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             Text(
               order.typeLabel,
               style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
             ),
+            if (isGridTile) ...[
+              const SizedBox(height: 20),
+              Text(
+                order.itemsLabel,
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Spacer(),
+            ],
             const SizedBox(height: 10),
             // SLA progress bar
             ClipRRect(
@@ -119,7 +153,9 @@ class OrderCard extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  '${order.elapsedMinutes}m elapsed',
+                  isGridTile
+                      ? '${order.elapsedMinutes}m'
+                      : '${order.elapsedMinutes}m elapsed',
                   style: const TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
@@ -127,7 +163,7 @@ class OrderCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  _slaText,
+                  isGridTile ? _gridSlaText : _slaText,
                   style: TextStyle(
                     color: _statusColor,
                     fontSize: 12,
@@ -136,7 +172,11 @@ class OrderCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            if (isGridTile) ...[
+              const Spacer(),
+              const Divider(color: Color(0xFF2A2A2A), height: 21),
+            ] else
+              const SizedBox(height: 10),
             // Staff row
             Row(
               children: [
@@ -183,13 +223,32 @@ class OrderCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: const Color(0xFF3A3A3A)),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Assign',
                         style: TextStyle(
-                          color: AppColors.white,
+                          color: isGridTile ? AppColors.gold : AppColors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
+                      ),
+                    ),
+                  )
+                else if (isGridTile)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF173321),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Complete',
+                      style: TextStyle(
+                        color: Color(0xFF22C55E),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
