@@ -16,8 +16,14 @@ class LandingScreen extends StatelessWidget {
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 800;
           return isWide
-              ? _DesktopLayout(onLogin: _goLogin(context), onRegister: _goRegister(context))
-              : _MobileLayout(onLogin: _goLogin(context), onRegister: _goRegister(context));
+              ? _DesktopLayout(
+                  onLogin: _goLogin(context),
+                  onRegister: _goRegister(context),
+                )
+              : _MobileLayout(
+                  onLogin: _goLogin(context),
+                  onRegister: _goRegister(context),
+                );
         },
       ),
     );
@@ -72,11 +78,7 @@ class _DesktopLayout extends StatelessWidget {
               children: [
                 const _GetStartedHeader(),
                 const SizedBox(height: 32),
-                PrimaryButton(
-                  label: 'Login',
-                  isLight: true,
-                  onTap: onLogin,
-                ),
+                PrimaryButton(label: 'Login', isLight: true, onTap: onLogin),
                 const SizedBox(height: 12),
                 PrimaryButton(
                   label: 'Register',
@@ -120,11 +122,7 @@ class _MobileLayout extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
             child: Column(
               children: [
-                PrimaryButton(
-                  label: 'Login',
-                  isLight: true,
-                  onTap: onLogin,
-                ),
+                PrimaryButton(label: 'Login', isLight: true, onTap: onLogin),
                 const SizedBox(height: 12),
                 PrimaryButton(
                   label: 'Register',
@@ -157,9 +155,7 @@ class _HeroContent extends StatelessWidget {
       children: [
         Text(
           'Cafe\nManagement.',
-          style: isWide
-              ? textTheme.displayLarge
-              : textTheme.displayMedium,
+          style: isWide ? textTheme.displayLarge : textTheme.displayMedium,
         ),
         const SizedBox(height: 16),
         Text(
@@ -180,9 +176,15 @@ class _HeroContent extends StatelessWidget {
           const SizedBox(height: 40),
           Row(
             children: const [
-              FeatureItem(title: 'Live orders', subtitle: 'Real-time SLA tracking'),
+              FeatureItem(
+                title: 'Live orders',
+                subtitle: 'Real-time SLA tracking',
+              ),
               SizedBox(width: 40),
-              FeatureItem(title: 'Inventory', subtitle: 'Stock alerts & history'),
+              FeatureItem(
+                title: 'Inventory',
+                subtitle: 'Stock alerts & history',
+              ),
               SizedBox(width: 40),
               FeatureItem(title: 'QR tables', subtitle: 'Scan-to-order ready'),
             ],
@@ -204,9 +206,9 @@ class _GetStartedHeader extends StatelessWidget {
         Text(
           'Get started',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: AppColors.white,
-                fontWeight: FontWeight.w700,
-              ),
+            color: AppColors.white,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
