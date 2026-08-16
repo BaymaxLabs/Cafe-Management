@@ -47,7 +47,8 @@ class OrderCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(12),
-        border: Border(left: BorderSide(color: _statusColor, width: 3)),
+        // The status accent belongs on the card's top edge in every layout.
+        border: Border(top: BorderSide(color: _statusColor, width: 3)),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
